@@ -1,0 +1,10 @@
+# latex
+*.bbl
+*.aux
+*.blg
+*.log
+*.synctex.gz
+
+# data
+*.jpg
+*.png
