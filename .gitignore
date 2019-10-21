@@ -1,9 +1,5 @@
 # latex
-*.bbl
-*.aux
-*.blg
-*.log
-*.synctex.gz
+/tex
 
 # data
 *.jpg
