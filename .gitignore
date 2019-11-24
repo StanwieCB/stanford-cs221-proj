@@ -1,6 +1,7 @@
 # latex
 /tex/
+/code/.vscode
 
 # data
-#*.jpg
-#*.png
+*.jpg
+*.png

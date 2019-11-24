@@ -16,12 +16,14 @@ from PIL import Image
 from torch.autograd import Variable
 from torchfile import load as load_lua
 
-from model import Vgg16
+from models.model import Vgg16
 
 def tensor_load_rgbimage(filename, size=None, scale=None, keep_asp=False):
     img = Image.open(filename).convert('RGB')
     if size is not None:
-        if keep_asp:
+        if isinstance(size, tuple):
+            img = img.resize(size, Image.ANTIALIAS)
+        elif keep_asp:
             size2 = int(size * 1.0 / img.size[0] * img.size[1])
             img = img.resize((size, size2), Image.ANTIALIAS)
         else:
