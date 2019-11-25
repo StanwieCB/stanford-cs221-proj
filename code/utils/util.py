@@ -3,8 +3,8 @@ import os
 import numpy as np
 import torch
 from PIL import Image
-from torch.autograd import Variable
-from torchfile import load as load_lua
+from pathlib import Path
+import torch.utils.data as data
 
 from models.model import Vgg16
 
@@ -69,7 +69,7 @@ def add_imagenet_mean_batch(batch):
     mean[:, 0, :, :] = 103.939
     mean[:, 1, :, :] = 116.779
     mean[:, 2, :, :] = 123.680
-    return batch + Variable(mean)
+    return batch + mean
 
 def imagenet_clamp_batch(batch, low, high):
     batch[:,0,:,:].data.clamp_(low-103.939, high-103.939)
@@ -84,7 +84,25 @@ def preprocess_batch(batch):
     batch = batch.transpose(0, 1)
     return batch
 
+class FlatFolderDataset(data.Dataset):
+    def __init__(self, root, transform):
+        super(FlatFolderDataset, self).__init__()
+        self.root = root
+        self.paths = list(Path(self.root).glob('*'))
+        self.transform = transform
 
+    def __getitem__(self, index):
+        path = self.paths[index]
+        img = Image.open(str(path)).convert('RGB')
+        img = self.transform(img)
+        return img
+
+    def __len__(self):
+        return len(self.paths)
+
+    def name(self):
+        return 'FlatFolderDataset'
+        
 # def init_vgg16(model_folder):
 #     """load the vgg16 model feature"""
 #     if not os.path.exists(os.path.join(model_folder, 'vgg16.weight')):

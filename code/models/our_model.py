@@ -210,7 +210,7 @@ class StyleTransferNet221(nn.Module):
         out_image = self.decoder(self.style_fusion_block(mixed_feature))
         out_image_f = self.encoder_basic(out_image)
         
-        print(out_image.shape, out_image_f[-1].shape, content_feature.shape, style_feature[-1].shape)
+        # print(out_image.shape, out_image_f[-1].shape, content_feature.shape, style_feature[-1].shape)
         loss_c = self.get_Lc(out_image_f[-1], content_feature)
         loss_s = self.get_Ls(out_image_f, style_feature)
 

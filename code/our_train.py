@@ -28,13 +28,13 @@ def train(args):
         kwargs = {}
 
     # loaders
-    transform = transforms.Compose([transforms.Scale(args.image_size),
+    transform = transforms.Compose([transforms.Resize(args.image_size),
                                     transforms.CenterCrop(args.image_size),
-                                    transforms.ToTensor(),
-                                    transforms.Lambda(lambda x: x.mul(255))])
-    train_dataset = datasets.ImageFolder(args.dataset, transform)
+                                    transforms.ToTensor()])
+    train_dataset = util.FlatFolderDataset(args.dataset, transform)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, **kwargs)
-    style_loader = util.StyleLoader(args.style_folder, args.image_size, args.batch_size)
+    style_dataset = util.FlatFolderDataset(args.style_folder, transform)
+    style_loader = DataLoader(style_dataset, batch_size=args.batch_size, **kwargs)
 
     # net and trainers
     vgg = our_model.Vgg16
@@ -57,14 +57,24 @@ def train(args):
         agg_style_loss = 0.
         agg_basic_loss = 0.
         count = 0
-        for batch_id, (content_images, _) in enumerate(train_loader):
+        for batch_id, content_images in enumerate(train_loader):
             n_batch = len(content_images)
             count += n_batch
             optimizer.zero_grad()
+                
+            style_images = style_dataset[batch_id%len(style_loader)]
+            style_images = style_images.expand_as(content_images)
             content_images = util.preprocess_batch(content_images)
+            style_images = util.preprocess_batch(style_images)
             if args.cuda:
                 content_images = content_images.cuda()
-            style_images = style_loader.get(batch_id)
+                style_images = style_images.cuda()
+            
+            # print(content_images.shape)
+            # print(style_images.shape)
+            # print(content_images[0])
+            # print("style")
+            # print(style_images[0])
             _, content_loss, style_loss, basic_loss = style_model(content_images, style_images)
 
             # for debug
@@ -132,7 +142,7 @@ if __name__ == "__main__":
                                     help="number of training epochs, default is 2")
     train_parser.add_argument("--batch-size", type=int, default=4,
                                     help="batch size for training, default is 4")
-    train_parser.add_argument("--dataset", type=str, default="/home/dataset/small",
+    train_parser.add_argument("--dataset", type=str, default="/home/dataset/small/small",
                                     help="path to training dataset, the path should point to a folder "
                                     "containing another folder with all the training images")
     train_parser.add_argument("--style-folder", type=str, default="/home/dataset/21styles/",
@@ -141,8 +151,8 @@ if __name__ == "__main__":
                                     help="directory for vgg, if model is not present in the directory it is downloaded")
     train_parser.add_argument("--save-model-dir", type=str, default="models/train_saved",
                                     help="path to folder where trained model will be saved.")
-    train_parser.add_argument("--image-size", type=int, default=256,
-                                    help="size of training images, default is 256 X 256")
+    train_parser.add_argument("--image-size", type=int, default=512,
+                                    help="size of training images, default is 512 X 512")
     train_parser.add_argument("--cuda", type=int, default=1, 
                                     help="set it to 1 for running on GPU, 0 for CPU")
     train_parser.add_argument("--seed", type=int, default=42, 
