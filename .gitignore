@@ -1,6 +1,9 @@
-# latex
+*.pyc
+*.pth
+
 /tex/
 /code/.vscode
+/code/models/train_saved
 
 # data
 *.jpg

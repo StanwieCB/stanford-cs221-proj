@@ -15,9 +15,6 @@ from torchvision import transforms
 
 from utils import util
 from models import our_model
-from models.model import Vgg16
-
-from global_var import Options
 
 def train(args):
     check_paths(args)
@@ -30,14 +27,16 @@ def train(args):
     else:
         kwargs = {}
 
-    # transform
+    # loaders
     transform = transforms.Compose([transforms.Scale(args.image_size),
                                     transforms.CenterCrop(args.image_size),
                                     transforms.ToTensor(),
                                     transforms.Lambda(lambda x: x.mul(255))])
     train_dataset = datasets.ImageFolder(args.dataset, transform)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, **kwargs)
+    style_loader = util.StyleLoader(args.style_folder, args.image_size)
 
+    # net and trainers
     style_model = our_model.StyleTransferNet221()
     if args.resume is not None:
         print('Resuming, initializing using weight from {}.'.format(args.resume))
@@ -46,15 +45,13 @@ def train(args):
     optimizer = Adam(style_model.parameters(), args.lr)
     mse_loss = torch.nn.MSELoss()
 
-    vgg = Vgg16()
-    util.init_vgg16(args.vgg_model_dir)
-    vgg.load_state_dict(torch.load(os.path.join(args.vgg_model_dir, "vgg16.weight")))
+    vgg = our_model.Vgg16
+    vgg.load_state_dict(torch.load(args.vgg))
+    vgg = torch.nn.Sequential(*list(vgg.children())[:31])
 
     if args.cuda:
         style_model.cuda()
         vgg.cuda()
-
-    style_loader = util.StyleLoader(args.style_folder, args.image_size)
 
     tbar = trange(args.epochs)
     for e in tbar:
@@ -89,8 +86,8 @@ def train(args):
             content_images_clone = Variable(content_images.data.clone())
             content_images_clone = util.subtract_imagenet_mean_batch(content_images_clone)
 
-            features_vgg_o = vgg(out_images)[1]
-            features_vgg_c = Variable(vgg(content_images_clone)[1].data, requires_grad=False)
+            features_vgg_o = vgg(out_images)
+            features_vgg_c = Variable(vgg(content_images_clone).data, requires_grad=False)
             #L_b
             basic_loss = args.basic_weight * mse_loss(features_vgg_o, features_vgg_c)
             
@@ -149,42 +146,41 @@ def check_paths(args):
         sys.exit(1)
 
 
-parser = argparse.ArgumentParser()
-train_arg = parser.add_argument_group('Train')
-train_arg.add_argument("--epochs", type=int, default=2,
-                                help="number of training epochs, default is 2")
-train_arg.add_argument("--batch-size", type=int, default=4,
-                                help="batch size for training, default is 4")
-train_arg.add_argument("--dataset", type=str, default="dataset/",
-                                help="path to training dataset, the path should point to a folder "
-                                "containing another folder with all the training images")
-train_arg.add_argument("--style-folder", type=str, default="images/9styles/",
-                                help="path to style-folder")
-train_arg.add_argument("--vgg-model-dir", type=str, default="models/",
-                                help="directory for vgg, if model is not present in the directory it is downloaded")
-train_arg.add_argument("--save-model-dir", type=str, default="models/",
-                                help="path to folder where trained model will be saved.")
-train_arg.add_argument("--image-size", type=int, default=256,
-                                help="size of training images, default is 256 X 256")
-train_arg.add_argument("--cuda", type=int, default=1, 
-                                help="set it to 1 for running on GPU, 0 for CPU")
-train_arg.add_argument("--seed", type=int, default=42, 
-                                help="random seed for training")
-train_arg.add_argument("--content-weight", type=float, default=1.0,
-                                help="weight for content-loss, default is 1.0")
-train_arg.add_argument("--style-weight", type=float, default=5.0,
-                                help="weight for style-loss, default is 5.0")
-train_arg.add_argument("--basic-weight", type=float, default=4.0,
-                                help="weight for style-loss, default is 4.0")
-train_arg.add_argument("--lr", type=float, default=1e-3,
-                                help="learning rate, default is 0.001")
-train_arg.add_argument("--log-interval", type=int, default=500,
-                                help="number of images after which the training loss is logged, default is 500")
-train_arg.add_argument("--resume", type=str, default=None,
-                                help="resume if needed")
-
 if __name__ == "__main__":
-    args = Options().parse()
+    train_parser = argparse.ArgumentParser()
+    train_parser.add_argument("--epochs", type=int, default=2,
+                                    help="number of training epochs, default is 2")
+    train_parser.add_argument("--batch-size", type=int, default=4,
+                                    help="batch size for training, default is 4")
+    train_parser.add_argument("--dataset", type=str, default="/home/dataset/small",
+                                    help="path to training dataset, the path should point to a folder "
+                                    "containing another folder with all the training images")
+    train_parser.add_argument("--style-folder", type=str, default="/home/dataset/21styles/",
+                                    help="path to style-folder")
+    train_parser.add_argument("--vgg-", type=str, default="models/vgg16.pth",
+                                    help="directory for vgg, if model is not present in the directory it is downloaded")
+    train_parser.add_argument("--save-model-dir", type=str, default="models/train_saved",
+                                    help="path to folder where trained model will be saved.")
+    train_parser.add_argument("--image-size", type=int, default=256,
+                                    help="size of training images, default is 256 X 256")
+    train_parser.add_argument("--cuda", type=int, default=1, 
+                                    help="set it to 1 for running on GPU, 0 for CPU")
+    train_parser.add_argument("--seed", type=int, default=42, 
+                                    help="random seed for training")
+    train_parser.add_argument("--content-weight", type=float, default=1.0,
+                                    help="weight for content-loss, default is 1.0")
+    train_parser.add_argument("--style-weight", type=float, default=5.0,
+                                    help="weight for style-loss, default is 5.0")
+    train_parser.add_argument("--basic-weight", type=float, default=4.0,
+                                    help="weight for style-loss, default is 4.0")
+    train_parser.add_argument("--lr", type=float, default=1e-3,
+                                    help="learning rate, default is 0.001")
+    train_parser.add_argument("--log-interval", type=int, default=500,
+                                    help="number of images after which the training loss is logged, default is 500")
+    train_parser.add_argument("--resume", type=str, default=None,
+                                    help="resume if needed")
+    args = train_parser.parse_args()
+    print(args)
     if args.cuda and not torch.cuda.is_available():
         raise ValueError("ERROR: cuda is not available, try running on CPU")
 
