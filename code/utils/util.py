@@ -58,7 +58,7 @@ def subtract_imagenet_mean_batch(batch):
     mean[:, 1, :, :] = 116.779
     mean[:, 2, :, :] = 123.680
     if batch.is_cuda:
-      mean = mean.cuda()
+        mean = mean.cuda()
     return batch - mean
 
 
@@ -85,17 +85,17 @@ def preprocess_batch(batch):
     return batch
 
 
-def init_vgg16(model_folder):
-    """load the vgg16 model feature"""
-    if not os.path.exists(os.path.join(model_folder, 'vgg16.weight')):
-        if not os.path.exists(os.path.join(model_folder, 'vgg16.t7')):
-            os.system(
-                'wget http://cs.stanford.edu/people/jcjohns/fast-neural-style/models/vgg16.t7 -O ' + os.path.join(model_folder, 'vgg16.t7'))
-        vgglua = load_lua(os.path.join(model_folder, 'vgg16.t7'))
-        vgg = Vgg16()
-        for (src, dst) in zip(vgglua.parameters()[0], vgg.parameters()):
-            dst.data[:] = src
-        torch.save(vgg.state_dict(), os.path.join(model_folder, 'vgg16.weight'))
+# def init_vgg16(model_folder):
+#     """load the vgg16 model feature"""
+#     if not os.path.exists(os.path.join(model_folder, 'vgg16.weight')):
+#         if not os.path.exists(os.path.join(model_folder, 'vgg16.t7')):
+#             os.system(
+#                 'wget http://cs.stanford.edu/people/jcjohns/fast-neural-style/models/vgg16.t7 -O ' + os.path.join(model_folder, 'vgg16.t7'))
+#         vgglua = load_lua(os.path.join(model_folder, 'vgg16.t7'))
+#         vgg = Vgg16()
+#         for (src, dst) in zip(vgglua.parameters()[0], vgg.parameters()):
+#             dst.data[:] = src
+#         torch.save(vgg.state_dict(), os.path.join(model_folder, 'vgg16.weight'))
 
 
 class StyleLoader():
