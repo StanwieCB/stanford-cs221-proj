@@ -34,7 +34,7 @@ def train(args):
                                     transforms.Lambda(lambda x: x.mul(255))])
     train_dataset = datasets.ImageFolder(args.dataset, transform)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, **kwargs)
-    style_loader = util.StyleLoader(args.style_folder, args.image_size)
+    style_loader = util.StyleLoader(args.style_folder, args.image_size, args.batch_size)
 
     # net and trainers
     style_model = our_model.StyleTransferNet221()
@@ -56,9 +56,9 @@ def train(args):
     tbar = trange(args.epochs)
     for e in tbar:
         style_model.train()
-        content_loss = 0.
-        style_loss = 0.
-        basic_loss = 0.
+        agg_content_loss = 0.
+        agg_style_loss = 0.
+        agg_basic_loss = 0.
         count = 0
         for batch_id, (content_images, _) in enumerate(train_loader):
             n_batch = len(content_images)
@@ -68,26 +68,28 @@ def train(args):
             if args.cuda:
                 content_images = content_images.cuda()
             style_images = style_loader.get(batch_id)
-
             style_feature, content_feature, out_images = style_model(content_images, style_images)
-            print(content_images.shape, style_images.shape, out_images)
+            # for debug
+            # print(content_images.shape, style_images.shape, out_images.shape)
             _, content_feature_o, _ = style_model(out_images, style_images)
 
             # L_c
             content_loss = args.content_weight * mse_loss(content_feature_o, content_feature)
+            print(content_loss)
             style_feature_o, _, _ = style_model(content_images, out_images)
 
             gram_style_f = util.gram_matrix(style_feature)
             gram_style_o = util.gram_matrix(style_feature_o)
             # L_s
             style_loss = args.style_weight * mse_loss(gram_style_f, gram_style_o)
+            print(style_loss)
 
             out_images = util.subtract_imagenet_mean_batch(out_images)
-            content_images_clone = Variable(content_images.data.clone())
+            content_images_clone = content_images.clone()
             content_images_clone = util.subtract_imagenet_mean_batch(content_images_clone)
 
             features_vgg_o = vgg(out_images)
-            features_vgg_c = Variable(vgg(content_images_clone).data, requires_grad=False)
+            features_vgg_c = vgg(content_images_clone)
             #L_b
             basic_loss = args.basic_weight * mse_loss(features_vgg_o, features_vgg_c)
             
@@ -95,9 +97,9 @@ def train(args):
             total_loss.backward()
             optimizer.step()
 
-            agg_content_loss += content_loss.data[0]
-            agg_style_loss += style_loss.data[0]
-            agg_basic_loss += basic_loss.data[0]
+            agg_content_loss += content_loss.item()
+            agg_style_loss += style_loss.item()
+            agg_basic_loss += basic_loss.item()
 
             if (batch_id + 1) % args.log_interval == 0:
                 mesg = "{}\tEpoch {}:\t[{}/{}]\tcontent: {:.6f}\tstyle: {:.6f}\t \
@@ -137,8 +139,6 @@ def train(args):
 
 def check_paths(args):
     try:
-        if not os.path.exists(args.vgg_model_dir):
-            os.makedirs(args.vgg_model_dir)
         if not os.path.exists(args.save_model_dir):
             os.makedirs(args.save_model_dir)
     except OSError as e:
@@ -157,7 +157,7 @@ if __name__ == "__main__":
                                     "containing another folder with all the training images")
     train_parser.add_argument("--style-folder", type=str, default="/home/dataset/21styles/",
                                     help="path to style-folder")
-    train_parser.add_argument("--vgg-", type=str, default="models/vgg16.pth",
+    train_parser.add_argument("--vgg", type=str, default="models/vgg16.pth",
                                     help="directory for vgg, if model is not present in the directory it is downloaded")
     train_parser.add_argument("--save-model-dir", type=str, default="models/train_saved",
                                     help="path to folder where trained model will be saved.")
@@ -173,9 +173,9 @@ if __name__ == "__main__":
                                     help="weight for style-loss, default is 5.0")
     train_parser.add_argument("--basic-weight", type=float, default=4.0,
                                     help="weight for style-loss, default is 4.0")
-    train_parser.add_argument("--lr", type=float, default=1e-3,
-                                    help="learning rate, default is 0.001")
-    train_parser.add_argument("--log-interval", type=int, default=500,
+    train_parser.add_argument("--lr", type=float, default=1e-4,
+                                    help="learning rate, default is 0.0001")
+    train_parser.add_argument("--log-interval", type=int, default=5,
                                     help="number of images after which the training loss is logged, default is 500")
     train_parser.add_argument("--resume", type=str, default=None,
                                     help="resume if needed")

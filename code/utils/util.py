@@ -1,13 +1,3 @@
-##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-## Created by: Hang Zhang
-## ECE Department, Rutgers University
-## Email: zhang.hang@rutgers.edu
-## Copyright (c) 2017
-##
-## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
-##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
 import os
 
 import numpy as np
@@ -67,7 +57,9 @@ def subtract_imagenet_mean_batch(batch):
     mean[:, 0, :, :] = 103.939
     mean[:, 1, :, :] = 116.779
     mean[:, 2, :, :] = 123.680
-    return batch - Variable(mean)
+    if batch.is_cuda:
+      mean = mean.cuda()
+    return batch - mean
 
 
 def add_imagenet_mean_batch(batch):
@@ -107,17 +99,18 @@ def init_vgg16(model_folder):
 
 
 class StyleLoader():
-    def __init__(self, style_folder, style_size, cuda=True):
+    def __init__(self, style_folder, style_size, batch_size, cuda=True):
         self.folder = style_folder
         self.style_size = style_size
         self.files = os.listdir(style_folder)
         self.cuda = cuda
+        self.batch_size = batch_size
     
     def get(self, i):
         idx = i%len(self.files)
         filepath = os.path.join(self.folder, self.files[idx])
         style = tensor_load_rgbimage(filepath, self.style_size)    
-        style = style.unsqueeze(0)
+        style = style.unsqueeze(0).repeat(self.batch_size, 1, 1, 1)
         style = preprocess_batch(style)
         if self.cuda:
             style = style.cuda()
