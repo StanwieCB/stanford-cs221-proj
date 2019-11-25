@@ -114,8 +114,9 @@ class StyleLoader():
         style = preprocess_batch(style)
         if self.cuda:
             style = style.cuda()
-        style_v = Variable(style, requires_grad=False)
-        return style_v
+        return style
+        # style_v = Variable(style, requires_grad=False)
+        # return style_v
 
     def size(self):
         return len(self.files)

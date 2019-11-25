@@ -37,21 +37,18 @@ def train(args):
     style_loader = util.StyleLoader(args.style_folder, args.image_size, args.batch_size)
 
     # net and trainers
-    style_model = our_model.StyleTransferNet221()
+    vgg = our_model.Vgg16
+    vgg.load_state_dict(torch.load(args.vgg))
+    vgg = torch.nn.Sequential(*list(vgg.children())[:31])
+    style_model = our_model.StyleTransferNet221(vgg)
     if args.resume is not None:
         print('Resuming, initializing using weight from {}.'.format(args.resume))
         style_model.load_state_dict(torch.load(args.resume))
     
     optimizer = Adam(style_model.parameters(), args.lr)
-    mse_loss = torch.nn.MSELoss()
-
-    vgg = our_model.Vgg16
-    vgg.load_state_dict(torch.load(args.vgg))
-    vgg = torch.nn.Sequential(*list(vgg.children())[:31])
 
     if args.cuda:
         style_model.cuda()
-        vgg.cuda()
 
     tbar = trange(args.epochs)
     for e in tbar:
@@ -64,35 +61,18 @@ def train(args):
             n_batch = len(content_images)
             count += n_batch
             optimizer.zero_grad()
-            content_images = Variable(util.preprocess_batch(content_images))
+            content_images = util.preprocess_batch(content_images)
             if args.cuda:
                 content_images = content_images.cuda()
             style_images = style_loader.get(batch_id)
-            style_feature, content_feature, out_images = style_model(content_images, style_images)
+            _, content_loss, style_loss, basic_loss = style_model(content_images, style_images)
+
             # for debug
-            # print(content_images.shape, style_images.shape, out_images.shape)
-            _, content_feature_o, _ = style_model(out_images, style_images)
+            # print(out_images.shape)
+            content_loss = content_loss * args.content_weight
+            style_loss = content_loss * args.style_weight
+            basic_loss = content_loss * args.basic_weight
 
-            # L_c
-            content_loss = args.content_weight * mse_loss(content_feature_o, content_feature)
-            print(content_loss)
-            style_feature_o, _, _ = style_model(content_images, out_images)
-
-            gram_style_f = util.gram_matrix(style_feature)
-            gram_style_o = util.gram_matrix(style_feature_o)
-            # L_s
-            style_loss = args.style_weight * mse_loss(gram_style_f, gram_style_o)
-            print(style_loss)
-
-            out_images = util.subtract_imagenet_mean_batch(out_images)
-            content_images_clone = content_images.clone()
-            content_images_clone = util.subtract_imagenet_mean_batch(content_images_clone)
-
-            features_vgg_o = vgg(out_images)
-            features_vgg_c = vgg(content_images_clone)
-            #L_b
-            basic_loss = args.basic_weight * mse_loss(features_vgg_o, features_vgg_c)
-            
             total_loss = content_loss + style_loss + basic_loss
             total_loss.backward()
             optimizer.step()
@@ -175,7 +155,7 @@ if __name__ == "__main__":
                                     help="weight for style-loss, default is 4.0")
     train_parser.add_argument("--lr", type=float, default=1e-4,
                                     help="learning rate, default is 0.0001")
-    train_parser.add_argument("--log-interval", type=int, default=5,
+    train_parser.add_argument("--log-interval", type=int, default=500,
                                     help="number of images after which the training loss is logged, default is 500")
     train_parser.add_argument("--resume", type=str, default=None,
                                     help="resume if needed")
