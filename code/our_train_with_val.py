@@ -43,11 +43,18 @@ def train(args):
     vgg.load_state_dict(torch.load(args.vgg))
     vgg = torch.nn.Sequential(*list(vgg.children())[:31])
     style_model = our_model.StyleTransferNet221(vgg)
-    if args.resume is not None:
-        print('Resuming, initializing using weight from {}.'.format(args.resume))
-        style_model.load_state_dict(torch.load(args.resume))
     
     optimizer = Adam(style_model.parameters(), args.lr)
+    
+    count = 0
+    start_time = str(time.ctime()).replace(' ', '_')
+    if args.resume is not None:
+        print('Resuming, initializing using weight from {}.'.format(args.resume))
+        checkpoint = torch.load(args.resume)
+        style_model.load_state_dict(checkpoint["model_state"])
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+        count = checkpoint["iter"]
+        start_time = checkpoint["start_time"]
 
     if args.cuda:
         style_model.cuda()
@@ -58,7 +65,6 @@ def train(args):
         agg_content_loss = 0.
         agg_style_loss = 0.
         agg_basic_loss = 0.
-        count = 0
         for batch_id, content_images in enumerate(train_loader):
             n_batch = len(content_images)
             count += n_batch
@@ -94,9 +100,9 @@ def train(args):
             agg_basic_loss += basic_loss.item()
 
             if (batch_id + 1) % args.log_interval == 0:
-                mesg = "{}\tEpoch {}:\t[{}/{}]\tcontent: {:.6f}\tstyle: {:.6f}\t \
+                mesg = "{}\t[{}/{}]\tcontent: {:.6f}\tstyle: {:.6f}\t \
                     basic: {:.6f}\ttotal: {:.6f}".format(
-                    time.ctime(), e + 1, count, len(train_dataset),
+                    time.ctime(), count, len(train_dataset),
                                 agg_content_loss / (batch_id + 1),
                                 agg_style_loss / (batch_id + 1),
                                 agg_basic_loss / (batch_id + 1),
@@ -107,47 +113,54 @@ def train(args):
             if (batch_id + 1) % (4 * args.log_interval) == 0:
                 # save model
                 style_model.eval()
-                style_model.cpu()
-                save_model_filename = "Epoch_" + str(e) + "iters_" + str(count) + "_" + \
-                    str(time.ctime()).replace(' ', '_') + "_" + str(
+                state = {
+                        "iter": count + 1,
+                        "model_state": style_model.state_dict(),
+                        "optimizer_state": optimizer.state_dict(),
+                        "start_time": start_time
+                }
+                save_model_filename = "iters_" + str(count) + "_" + \
+                    start_time + "_" + str(
                     args.content_weight) + "_" + str(args.style_weight) + ".model"
                 save_model_path = os.path.join(args.save_model_dir, save_model_filename)
-                torch.save(style_model.state_dict(), save_model_path)
-                style_model.cuda()
-                tbar.set_description("\nCheckpoint, trained model saved at", save_model_path)
+                
+                torch.save(state, save_model_path)
+                
+                print("Checkpoint, trained model saved at", save_model_path)
                 
                 # validation
-                style_model.eval()
-                for i, val_images in enumerate(val_dataset):
-                    style_images = style_dataset[i%len(style_dataset)]
-                    # print(val_images.shape)
-                    # print(style_images.shape)
-                    style_images = style_images[None,:,:]
-                    style_images = util.preprocess_batch(style_images)
-                    style_images = style_images.cuda()
-                    val_images = val_images[None,:,:]
-                    val_images = util.preprocess_batch(val_images)
-                    val_images = val_images.cuda()
-                    
-                    out_images, _, _, _ = style_model(val_images, style_images)
-                    
-                    # safe save
-                    if not os.path.exists(args.result-folder):
-                        os.makedirs(args.result-folder)
+                with torch.no_grad():
+                    for i, val_images in enumerate(val_dataset):
+                        style_images = style_dataset[i%len(style_dataset)]
+                        # print(val_images.shape)
+                        # print(style_images.shape)
+                        style_images = style_images[None,:,:]
+                        style_images = util.preprocess_batch(style_images)
+                        style_images = style_images.cuda()
+                        val_images = val_images[None,:,:]
+                        val_images = util.preprocess_batch(val_images)
+                        val_images = val_images.cuda()
                         
-                    val_save_path = os.path.join(args.result-folder, str(count), str(i)+'_input')
-                    output_save_path = os.path.join(args.result-folder, str(count), str(i)+'_output')
-                    style_save_path = os.path.join(args.result-folder, str(count), str(i)+'_style')
-                    
-                    val_images = val_images.cpu()
-                    style_images = style_images.cpu()
-                    out_images = out_images.cpu()
-                    
-                    # if preprossed, than save bgr, otherwise rgb
-                    util.tensor_save_rgbimage(val_images[0], val_save_path)
-                    util.tensor_save_rgbimage(out_images[0], output_save_path)
-                    util.tensor_save_rgbimage(style_images[0], style_save_path)
-                    
+                        out_images, _, _, _ = style_model(val_images, style_images)
+                        
+                        # safe save
+                        path = os.path.join(args.result_folder, str(count))
+                        if not os.path.exists(path):
+                            os.makedirs(path)
+                            
+                        val_save_path = os.path.join(path, str(i)+'_input.jpg')
+                        output_save_path = os.path.join(path, str(i)+'_output.jpg')
+                        style_save_path = os.path.join(path, str(i)+'_style.jpg')
+                        
+                        val_images = val_images.cpu()
+                        style_images = style_images.cpu()
+                        out_images = out_images.cpu()
+                        
+                        # if preprossed, than save bgr, otherwise rgb
+                        util.tensor_save_bgrimage(val_images[0], val_save_path)
+                        util.tensor_save_bgrimage(out_images[0], output_save_path)
+                        util.tensor_save_bgrimage(style_images[0], style_save_path)
+                        
                 style_model.train()
     # save model
     style_model.eval()

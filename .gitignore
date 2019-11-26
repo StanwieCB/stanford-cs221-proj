@@ -4,6 +4,7 @@
 /tex/
 /code/.vscode
 /code/models/train_saved
+/code/results/
 
 # data
 *.jpg
