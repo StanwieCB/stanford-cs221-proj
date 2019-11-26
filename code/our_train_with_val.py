@@ -33,7 +33,7 @@ def train(args):
                                     transforms.ToTensor()])
     train_dataset = util.FlatFolderDataset(args.dataset, transform)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, **kwargs)
-    val_dataset = util.FlaFolderDataset(args.val_folder, transform)
+    val_dataset = util.FlatFolderDataset(args.val_folder, transform)
     val_loader = DataLoader(val_dataset, batch_size=1)
     style_dataset = util.FlatFolderDataset(args.style_folder, transform)
     style_loader = DataLoader(style_dataset, batch_size=args.batch_size, **kwargs)
@@ -119,20 +119,34 @@ def train(args):
                 # validation
                 style_model.eval()
                 for i, val_images in enumerate(val_dataset):
-                    style_image = style_dataset[i%len(val_dataset)]
-                    val_images = util.preprocess_batch(val_images)
-                    style_images = util.preprocess_batch(style_images)
+                    style_images = style_dataset[i%len(style_dataset)]
                     # print(val_images.shape)
                     # print(style_images.shape)
+                    style_images = style_images[None,:,:]
+                    style_images = util.preprocess_batch(style_images)
+                    style_images = style_images.cuda()
+                    val_images = val_images[None,:,:]
+                    val_images = util.preprocess_batch(val_images)
+                    val_images = val_images.cuda()
                     
                     out_images, _, _, _ = style_model(val_images, style_images)
                     
+                    # safe save
+                    if not os.path.exists(args.result-folder):
+                        os.makedirs(args.result-folder)
+                        
                     val_save_path = os.path.join(args.result-folder, str(count), str(i)+'_input')
                     output_save_path = os.path.join(args.result-folder, str(count), str(i)+'_output')
                     style_save_path = os.path.join(args.result-folder, str(count), str(i)+'_style')
-                    util.tensor_save_bgrimage(val_images, val_save_path)
-                    util.tensor_save_bgrimage(out_images, output_save_path)
-                    util.tensor_save_bgrimage(style_images, style_save_path)
+                    
+                    val_images = val_images.cpu()
+                    style_images = style_images.cpu()
+                    out_images = out_images.cpu()
+                    
+                    # if preprossed, than save bgr, otherwise rgb
+                    util.tensor_save_rgbimage(val_images[0], val_save_path)
+                    util.tensor_save_rgbimage(out_images[0], output_save_path)
+                    util.tensor_save_rgbimage(style_images[0], style_save_path)
                     
                 style_model.train()
     # save model
