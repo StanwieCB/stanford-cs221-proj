@@ -55,7 +55,7 @@ def train(args):
         style_model.train()
         agg_content_loss = 0.
         agg_style_loss = 0.
-        agg_basic_loss = 0.
+        # agg_basic_loss = 0.
         count = 0
         for batch_id, content_images in enumerate(train_loader):
             n_batch = len(content_images)
@@ -75,21 +75,22 @@ def train(args):
             # print(content_images[0])
             # print("style")
             # print(style_images[0])
-            _, content_loss, style_loss, basic_loss = style_model(content_images, style_images)
+            _, content_loss, style_loss = style_model(content_images, style_images)
 
             # for debug
             # print(out_images.shape)
             content_loss = content_loss * args.content_weight
             style_loss = content_loss * args.style_weight
-            basic_loss = content_loss * args.basic_weight
+            # basic_loss = content_loss * args.basic_weight
 
-            total_loss = content_loss + style_loss + basic_loss
+            total_loss = content_loss + style_loss
+            
             total_loss.backward()
             optimizer.step()
 
             agg_content_loss += content_loss.item()
             agg_style_loss += style_loss.item()
-            agg_basic_loss += basic_loss.item()
+            # agg_basic_loss += basic_loss.item()
 
             if (batch_id + 1) % args.log_interval == 0:
                 mesg = "{}\tEpoch {}:\t[{}/{}]\tcontent: {:.6f}\tstyle: {:.6f}\t \
@@ -97,8 +98,8 @@ def train(args):
                     time.ctime(), e + 1, count, len(train_dataset),
                                 agg_content_loss / (batch_id + 1),
                                 agg_style_loss / (batch_id + 1),
-                                agg_basic_loss / (batch_id + 1),
-                                (agg_content_loss + agg_style_loss + agg_basic_loss) / (batch_id + 1)
+                                # agg_basic_loss / (batch_id + 1),
+                                (agg_content_loss + agg_style_loss ) / (batch_id + 1)
                 )
                 tbar.set_description(mesg)
             

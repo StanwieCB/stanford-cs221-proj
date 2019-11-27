@@ -4,6 +4,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
+def calc_mean_std(feat, eps=1e-5):
+    # eps is a small value added to the variance to avoid divide-by-zero.
+    size = feat.size()
+    assert (len(size) == 4)
+    N, C = size[:2]
+    feat_var = feat.view(N, C, -1).var(dim=2) + eps
+    feat_std = feat_var.sqrt().view(N, C, 1, 1)
+    feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1, 1)
+    return feat_mean, feat_std
+
+def ad_normalization(content_feat, style_feat):
+    assert (content_feat.size()[:2] == style_feat.size()[:2])
+    size = content_feat.size()
+    style_mean, style_std = calc_mean_std(style_feat)
+    content_mean, content_std = calc_mean_std(content_feat)
+
+    normalized_feat = (content_feat - content_mean.expand(
+        size)) / content_std.expand(size)
+    return normalized_feat * style_std.expand(size) + style_mean.expand(size)
+
+
 
 def conv1x1(input_channels, output_channels, stride=1, padding=0, bias=False):
     return nn.Conv2d(input_channels, output_channels, kernel_size=1, stride=stride, padding=padding, bias=bias)    
@@ -59,6 +80,38 @@ class UpBlock(nn.Module):
 
     def forward(self, inputs):
         return self.block(self.up(inputs))
+
+decoder = nn.Sequential(
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(512, 256, (3, 3)),
+    nn.ReLU(),
+    nn.Upsample(scale_factor=2, mode='nearest'),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 256, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 256, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 256, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 128, (3, 3)),
+    nn.ReLU(),
+    nn.Upsample(scale_factor=2, mode='nearest'),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(128, 128, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(128, 64, (3, 3)),
+    nn.ReLU(),
+    nn.Upsample(scale_factor=2, mode='nearest'),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(64, 64, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(64, 3, (3, 3)),
+)
 
 Vgg16 = nn.Sequential(
     nn.Conv2d(3, 3, (1, 1)),
@@ -127,8 +180,9 @@ class GramMatrix(nn.Module):
 class StyleTransferNet221(nn.Module):
     def __init__(self, vgg):
         super(StyleTransferNet221, self).__init__()
-        self.style_encoder = vgg
-        self.content_encoder = vgg
+        # self.style_encoder = vgg
+        self.encoder = vgg
+        # self.content_encoder = vgg
         self.style_fusion_block = nn.Sequential(
             ConvBlock(1024, 512),
             ConvBlock(512, 256),
@@ -162,6 +216,7 @@ class StyleTransferNet221(nn.Module):
         self.gram = GramMatrix()
         self.loss = nn.MSELoss()
 
+
     # extract relu1_1, relu2_1, relu3_1, relu4_1 from input image
     def encode_style(self, input):
         results = [input]
@@ -170,7 +225,6 @@ class StyleTransferNet221(nn.Module):
             results.append(func(results[-1]))
         return results[1:]
 
-    # extract relu4_1 from input image
     def encode_content(self, input):
         for i in range(4):
             input = getattr(self, 'ec_{:d}'.format(i + 1))(input)
@@ -190,19 +244,25 @@ class StyleTransferNet221(nn.Module):
 
     def get_Ls(self, input, target):
         # assert (target.requires_grad is False)
-        loss = 0.
-        for i, _ in enumerate(input):
-            assert (input[i].shape == target[i].shape)
-            loss += self.loss(self.gram(input[i]), self.gram(target[i])) 
-        return loss
-    
-    def get_Lb(self, input, target):
-        assert (input.shape == target.shape)
+        # loss = 0.
+        # for i, _ in enumerate(input):
+        #     assert (input[i].shape == target[i].shape)
+        #     loss += self.loss(self.gram(input[i]), self.gram(target[i])) 
+        # return loss
+        assert (input.size() == target.size())
         assert (target.requires_grad is False)
-        return self.loss(input, target)
+        input_mean, input_std = calc_mean_std(input)
+        target_mean, target_std = calc_mean_std(target)
+        return self.loss(input_mean, target_mean) + \
+               self.loss(input_std, target_std)
+    
+    # def get_Lb(self, input, target):
+    #     assert (input.shape == target.shape)
+    #     assert (target.requires_grad is False)
+    #     return self.loss(input, target)
 
     # U-Net
-    def forward(self, x_c, x_s):
+    def forward(self, x_c, x_s, interpolation=1.0):
         style_feature = self.encode_style(x_s)
         content_feature = self.encode_content(x_c)
         # NCHW
@@ -210,9 +270,15 @@ class StyleTransferNet221(nn.Module):
         out_image = self.decoder(self.style_fusion_block(mixed_feature))
         out_image_f = self.encoder_basic(out_image)
         
+        norm = ad_normalization(content_feature, style_feature[-1])
+        norm = interpolation * norm + (1.0 - interpolation) * content_feature
+        
+        dec = self.decoder(t)
+        dec_feature = self.encode_style(dec)
         # print(out_image.shape, out_image_f[-1].shape, content_feature.shape, style_feature[-1].shape)
-        loss_c = self.get_Lc(out_image_f[-1], content_feature)
-        loss_s = self.get_Ls(out_image_f, style_feature)
+        
+        loss_c = self.get_Lc(dec_feature[-1], norm)
+        loss_s = self.get_Ls(dec_feature[0], style_feature[0])
 
         style_feature_ic = self.encode_style(x_c)
         out_image_ic = self.decoder(self.style_fusion_block(
@@ -220,7 +286,10 @@ class StyleTransferNet221(nn.Module):
         
         loss_b = self.get_Lb(out_image_ic, x_c)
 
-        return out_image, loss_c, loss_s, loss_b
+        for i in range(1, 4):
+            loss_s += self.get_Ls(g_t_feats[i], style_feats[i])
+
+        return loss_c, loss_s, 
 
 if __name__ == "__main__":
     test_c = torch.rand(1, 3, 64, 64)
@@ -234,4 +303,4 @@ if __name__ == "__main__":
     print(out_image.shape)
     print(loss_c)
     print(loss_s)
-    print(loss_b)
+    # print(loss_b)
